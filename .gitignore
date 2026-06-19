@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+coverage/
+.vitest/
+# NB: dist/ is intentionally COMMITTED (git-dep package, ~PIN-CONVENTION §6). Do NOT add it here.

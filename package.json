@@ -1,0 +1,54 @@
+{
+  "name": "@rello-platform/durable-jobs",
+  "version": "0.1.0",
+  "description": "Runtime-agnostic durable async-work primitive for the Rello platform — idempotent+coalescing enqueue, atomic-claim + chunked off-request drain with claim-TTL crash-recovery, atomic progress, reconciling health-typed status, DLQ ladder, dual-dispatch + env-parity. The blessed bulk/at-scale shape (PFP RelloSyncQueue gold-standard + HH BYOL reference, unified).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@prisma/client": ">=5.0.0",
+    "@trigger.dev/sdk": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@prisma/client": {
+      "optional": true
+    },
+    "@trigger.dev/sdk": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@rello-platform/health": "github:rello-platform/health#v0.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github:rello-platform/durable-jobs"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "license": "UNLICENSED"
+}

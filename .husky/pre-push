@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# Pre-push: axis-1 verification (replaces retired GH Actions ci.yml/build-gates.yml/tsc-typecheck.yml).
+# Per ~PLATFORM-PACKAGE-PIN-CONVENTION-README §6: git-dep package — hooks are COMMITTED, not
+# installed (no husky devDep, no prepare/postinstall). Enable per clone with:
+#     git config core.hooksPath .husky
+# CRITICAL: tsc --noEmit runs STANDALONE (axis-1, memory:
+# feedback-three-axis-railway-build-vs-gh-actions-vs-health-commit).
+
+set -e
+
+echo "[pre-push] tsc --noEmit..."
+npx tsc --noEmit
+
+echo "[pre-push] npm run build..."
+npm run build
+
+echo "[pre-push] npm test..."
+npm test
+
+echo "[pre-push] dist/ committed check..."
+if [ -z "$(git ls-files dist/)" ]; then
+  echo "[pre-push] FAIL: dist/ is not committed. git-dep consumers install built output directly."
+  exit 1
+fi
+
+echo "[pre-push] All checks passed."
