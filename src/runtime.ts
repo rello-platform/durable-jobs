@@ -18,26 +18,82 @@
  */
 
 /**
- * Dual-dispatch: kick the off-request drain task. The consumer passes
- * `tasks.trigger` (or `taskInstance.trigger`) so the package never imports the
- * SDK. A failed dispatch is logged (never thrown) — the scheduled backstop
- * recovers it (the dispatch happening AFTER the DB commit is write-time-
- * unreachable, which is exactly why the backstop is a legitimate cron).
+ * Args for the v0.1.0 (taskId + payload) form of `dispatchDrain`. The consumer
+ * passes a `trigger(taskId, payload)` callback — the shape of `tasks.trigger`.
  */
-export async function dispatchDrain(args: {
+export interface DispatchDrainByIdArgs {
+  /** A `(taskId, payload) => Promise` callback — typically `tasks.trigger`. */
   trigger: (taskId: string, payload: unknown) => Promise<unknown>;
   taskId: string;
   payload: unknown;
   logPrefix?: string;
-}): Promise<{ dispatched: boolean }> {
+}
+
+/**
+ * Args for the v0.1.1 (ergo-fix 2) PRE-BOUND-THUNK form of `dispatchDrain`. The
+ * consumer passes a zero-arg thunk that already closes over the typed trigger
+ * call — e.g. `() => tasks.trigger<typeof drainTask>(drainTask.id, { batchId })`.
+ *
+ * Why this exists: the v0.1.0 `trigger: (taskId: string, …) => …` callback
+ * collides with the SDK's typed `tasks.trigger<typeof task>(literalTaskId, …)`
+ * — the SDK requires the literal task id, not a widened `string`, so wiring the
+ * callback form fights TS2345. Pre-binding the call into a thunk lets the
+ * consumer keep full SDK typing and hand `dispatchDrain` an already-bound fn.
+ */
+export interface DispatchDrainThunkArgs {
+  /** Pre-bound zero-arg dispatch thunk — closes over the typed `tasks.trigger(...)` call. */
+  trigger: () => Promise<unknown>;
+  /** Optional label for the log line (defaults to "drain task"). Purely cosmetic. */
+  taskId?: string;
+  logPrefix?: string;
+}
+
+/**
+ * Dual-dispatch: kick the off-request drain task. A failed dispatch is logged
+ * (never thrown) — the scheduled backstop recovers it (the dispatch happening
+ * AFTER the DB commit is write-time-unreachable, which is exactly why the
+ * backstop is a legitimate cron). The package never imports the Trigger.dev SDK;
+ * the consumer hands it the trigger call.
+ *
+ * Two forms (both backward-compatible):
+ *  - v0.1.0: `dispatchDrain({ trigger: (id, p) => tasks.trigger(id, p), taskId, payload })`
+ *  - v0.1.1: `dispatchDrain({ trigger: () => tasks.trigger<typeof task>(task.id, p) })`
+ *    — pass a pre-bound thunk; no `taskId`/`payload` required (the thunk closes
+ *    over them). This avoids the literal-task-id vs widened-`string` TS2345.
+ */
+export function dispatchDrain(
+  args: DispatchDrainByIdArgs,
+): Promise<{ dispatched: boolean }>;
+export function dispatchDrain(
+  args: DispatchDrainThunkArgs,
+): Promise<{ dispatched: boolean }>;
+export async function dispatchDrain(
+  args: DispatchDrainByIdArgs | DispatchDrainThunkArgs,
+): Promise<{ dispatched: boolean }> {
   const prefix = args.logPrefix ?? "[durable-jobs:dispatchDrain]";
+  // Disambiguate by SHAPE, not function arity: the v0.1.0 by-id form ALWAYS
+  // carries `taskId` (a required string) + `payload`; the thunk form carries
+  // neither. Arity (`trigger.length`) is unreliable — a `vi.fn()` mock and many
+  // bound callbacks report length 0 even for the (id, payload) form. The
+  // presence of a string `taskId` is the stable discriminator.
+  const isById = typeof (args as DispatchDrainByIdArgs).taskId === "string"
+    && "payload" in args;
+  const label =
+    typeof args.taskId === "string" && args.taskId.length > 0
+      ? args.taskId
+      : "drain task";
   try {
-    await args.trigger(args.taskId, args.payload);
+    if (isById) {
+      const a = args as DispatchDrainByIdArgs;
+      await a.trigger(a.taskId, a.payload);
+    } else {
+      await (args as DispatchDrainThunkArgs).trigger();
+    }
     return { dispatched: true };
   } catch (err) {
     // LOGGED catch — never silent, never thrown. The backstop recovers it.
     console.error(
-      `${prefix} dispatch of "${args.taskId}" failed (backstop will recover): ${
+      `${prefix} dispatch of "${label}" failed (backstop will recover): ${
         err instanceof Error ? err.message : String(err)
       }`,
     );

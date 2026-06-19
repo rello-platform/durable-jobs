@@ -1,6 +1,6 @@
 {
   "name": "@rello-platform/durable-jobs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runtime-agnostic durable async-work primitive for the Rello platform — idempotent+coalescing enqueue, atomic-claim + chunked off-request drain with claim-TTL crash-recovery, atomic progress, reconciling health-typed status, DLQ ladder, dual-dispatch + env-parity. The blessed bulk/at-scale shape (PFP RelloSyncQueue gold-standard + HH BYOL reference, unified).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,12 +8,17 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "files": [
     "dist",
     "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

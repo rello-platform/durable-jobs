@@ -179,11 +179,7 @@ export async function drainBulkOp(args) {
         }
         if (args.onChunk) {
             try {
-                await args.onChunk(chunkResults, {
-                    start,
-                    size: chunk.length,
-                    failed: chunkFailed,
-                });
+                await args.onChunk(chunkResults, { start, size: chunk.length, failed: chunkFailed }, intent);
             }
             catch (err) {
                 // Progress advance failing is non-fatal — reconcileStatus self-heals
@@ -211,7 +207,7 @@ export async function drainBulkOp(args) {
     }
     if (args.onComplete) {
         try {
-            await args.onComplete(allResults);
+            await args.onComplete(allResults, intent);
         }
         catch (err) {
             // onComplete is the consumer's finalize (signals, batch status). If it

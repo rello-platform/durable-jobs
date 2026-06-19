@@ -13,7 +13,7 @@
  * the contracts (status/health), and the column TEMPLATE. Consumers parameterize
  * every helper with their own `prisma.<model>` delegate + their Trigger.dev tasks.
  */
-export { TERMINAL_STATUSES, CLAIMABLE_STATUSES, BULK_OP_STATUSES, isTerminalStatus, isClaimableStatus, } from "./types.js";
+export { TERMINAL_STATUSES, CLAIMABLE_STATUSES, BULK_OP_STATUSES, isTerminalStatus, isClaimableStatus, asBulkOpDelegate, } from "./types.js";
 // ── Column template (§4.1) ───────────────────────────────────────────────
 export { DURABLE_INTENT_COLUMNS, DURABLE_INTENT_INDEXES, generateIntentModel, } from "./column-template.js";
 // ── Idempotent + coalescing enqueue (§4.2) ───────────────────────────────

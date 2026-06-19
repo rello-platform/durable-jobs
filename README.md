@@ -19,7 +19,7 @@ Consumed as a **git dep** (`~PLATFORM-PACKAGE-PIN-CONVENTION-README.md` §3). Pi
 
 ```jsonc
 // package.json
-"@rello-platform/durable-jobs": "github:rello-platform/durable-jobs#v0.1.0"
+"@rello-platform/durable-jobs": "github:rello-platform/durable-jobs#v0.1.1"
 ```
 
 `@trigger.dev/sdk` and `@prisma/client` are **optional peerDependencies** — the package never imports them directly (it takes `prisma.<model>` and `tasks.trigger` as parameters), so it never forces a runtime/CLI version on you. You own the pins (and the CLI-pin = SDK-pin rule).
@@ -87,7 +87,11 @@ const { intentId } = await enqueueBulkOp({
   payload: { leads },                        // the drain reads THIS, never the request body
   coalesceOn: { payload: { path: ["intakeId"], equals: intakeId } }, // optional — collapse redundant work
 });
+// Two dispatch forms (v0.1.1) — pick whichever types cleanly against your SDK pin:
 await dispatchDrain({ trigger: (id, p) => tasks.trigger(id, p), taskId: "byol-commit-drain", payload: { batchId } });
+// …or the PRE-BOUND THUNK form — keeps full `tasks.trigger<typeof task>(...)` typing,
+//    avoids the literal-task-id-vs-`string` TS2345 the callback form hits:
+await dispatchDrain({ trigger: () => tasks.trigger<typeof byolCommitDrain>(byolCommitDrain.id, { batchId }) });
 return Response.json({ queued: true });      // returns under the edge cap regardless of N
 ```
 
@@ -96,8 +100,10 @@ return Response.json({ queued: true });      // returns under the edge cap regar
 ### 2.2 Drain (in your Trigger.dev task — off the request path)
 
 ```ts
-const result = await drainBulkOp<{ leads: Lead[] }, Lead, CommitResult>({
-  delegate: prisma.pendingByolCommit,
+// Type the 4th param to thread YOUR business columns onto every hook's `intent`:
+type ByolIntent = BulkOpIntent<{ batchId: string; agentId: string }>;
+const result = await drainBulkOp<{ leads: Lead[] }, Lead, CommitResult, ByolIntent>({
+  delegate: prisma.pendingByolCommit,        // a real Prisma delegate fits structurally (v0.1.1)
   intentId: payload.batchId,                 // or look it up by anchor first
   chunkSize: 25,                             // default 25
   selectItems: (p) => p.leads,               // pull items from the PERSISTED payload
@@ -107,9 +113,11 @@ const result = await drainBulkOp<{ leads: Lead[] }, Lead, CommitResult>({
     if (!r.ok) throw new BulkOpTransientError(`rello 5xx: ${r.status}`);
     return r.body;
   },
-  onChunk: async (results, { size }) =>       // advance progress atomically per chunk
-    advanceProgress({ progressDelegate: prisma.batchProgress, where: { batchId }, increments: { committedCount: results.length } }),
-  onComplete: async (all) => { /* emit signals, finalize batch status */ },
+  // v0.1.1: the CLAIMED intent is threaded to onChunk/onComplete — read your
+  // progress key (intent.batchId) off it, NO extra PK read, NO `intent as {...}`:
+  onChunk: async (results, { size }, intent) =>
+    advanceProgress({ progressDelegate: prisma.batchProgress, where: { batchId: intent.batchId }, increments: { committedCount: results.length } }),
+  onComplete: async (all, intent) => { /* emit signals for intent.batchId, finalize batch status */ },
   onClaim: async (intent) => { /* fire your SYSTEM audit signal here — see §5 */ },
   mustNeverDrop: false,                       // true → DEAD_LETTER instead of FAILED at exhaustion
 });
@@ -217,11 +225,42 @@ For single-emit durable work where the receiver is idempotent on `idempotencyKey
 
 ---
 
+## 8. Testing helpers (`/testing` subpath)
+
+Import the in-memory test helpers from the `@rello-platform/durable-jobs/testing` **subpath** — they never touch a real DB (Test-Runner Standard §2), so a consumer's vitest/jest suite can exercise the durable primitive against a stub delegate:
+
+```ts
+import {
+  FakeDelegate,           // in-memory BulkOpDelegate stub — seed rows, drive any helper
+  FakeDlqDelegate,        // create-only DLQ-table stub (P2002 / throw injection) for writeDlq
+  TrackingDelegate,       // wraps any BulkOpDelegate, tallies per-method DB IO
+  assertBulkEndpointScales, // sweep enqueue across N, assert request-path writes stay bounded
+} from "@rello-platform/durable-jobs/testing";
+```
+
+`assertBulkEndpointScales` is the scale-harness contract: it runs your enqueue closure across a sweep of item counts and verifies the per-request **write** count never grows with N (the whole point of the durable shape — persist one intent, return; the drain does per-item work off-request). It catches the regression where a per-item INSERT loop leaks back into the handler:
+
+```ts
+const res = await assertBulkEndpointScales({
+  sizes: [1, 10, 100, 1000],
+  enqueue: async (delegate, n) =>
+    enqueueBulkOp({ delegate, anchor: { batchId: `b-${n}` }, tenantId: "t1", payload: { leads: makeN(n) } }),
+});
+expect(res.ok).toBe(true);              // writes stayed constant (1) across every N
+```
+
+`TrackingDelegate` wraps any delegate (the `FakeDelegate`, or your real Prisma delegate in an integration test) and exposes `.counts` (per-method call counts + `writes`/`total`). Import these ONLY from test/spec files — they are not part of the production surface.
+
+---
+
 ## Public API
+
+### Root entry — `@rello-platform/durable-jobs`
 
 | Symbol | Purpose |
 |---|---|
-| `BulkOpStatus`, `BulkOpIntent`, `BulkOpDelegate` (types) | the intent contract + the delegate you parameterize |
+| `BulkOpStatus`, `BulkOpIntent<TExtra>`, `BulkOpDelegate` (types) | the intent contract + the delegate you parameterize. `BulkOpIntent<TExtra>` (v0.1.1) types your business columns onto the threaded intent |
+| `asBulkOpDelegate` | typed identity cast-helper (v0.1.1) — `delegate: asBulkOpDelegate(prisma.x)` instead of `as unknown as` (a real Prisma delegate is now structurally assignable, so usually unneeded) |
 | `TERMINAL_STATUSES`, `CLAIMABLE_STATUSES`, `BULK_OP_STATUSES`, `isTerminalStatus`, `isClaimableStatus` | status-machine constants/guards |
 | `DURABLE_INTENT_COLUMNS`, `DURABLE_INTENT_INDEXES`, `generateIntentModel` | the Prisma column template |
 | `enqueueBulkOp` | idempotent + coalescing persist-first enqueue |
@@ -229,9 +268,17 @@ For single-emit durable work where the receiver is idempotent on `idempotencyKey
 | `advanceProgress`, `mergeProgressMap`, `advisoryLockKey` | atomic progress |
 | `reconcileStatus`, `BulkOpStatusResponse`, `ComponentHealth`, `HealthStatus`, `HEALTH_STATUSES` | the reconciling status contract |
 | `BulkOpTransientError`, `BulkOpPermanentError`, `classifyFailure`, `writeDlq`, `isPermanentError`, `isUniqueViolation` | DLQ ladder + typed errors |
-| `dispatchDrain`, `assertEnvParity` | Trigger.dev dual-dispatch + env-parity |
+| `dispatchDrain`, `assertEnvParity` | Trigger.dev dual-dispatch (by-id OR pre-bound-thunk form, v0.1.1) + env-parity |
 
 Tuning constants: `DEFAULT_CLAIM_TTL_MS` (15 min), `DEFAULT_CHUNK_SIZE` (25), `DEFAULT_SCAN_LIMIT` (50), `DEFAULT_BACKOFF_BASE_MS` (30s), `DEFAULT_BACKOFF_CAP_MS` (8 min).
+
+### Testing entry — `@rello-platform/durable-jobs/testing` (v0.1.1)
+
+| Symbol | Purpose |
+|---|---|
+| `FakeDelegate`, `FakeDlqDelegate` | in-memory `BulkOpDelegate` / DLQ-table stubs (never a real DB) |
+| `TrackingDelegate` | wraps any delegate, tallies per-method DB IO (`.counts`) |
+| `assertBulkEndpointScales` | sweep enqueue across N, assert request-path writes stay bounded |
 
 ---
 

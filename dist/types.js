@@ -46,4 +46,21 @@ export function isTerminalStatus(s) {
 export function isClaimableStatus(s) {
     return CLAIMABLE_STATUSES.includes(s);
 }
+/**
+ * Typed identity cast-helper (v0.1.1, ergo-fix 4). Returns its argument typed
+ * as `BulkOpDelegate<TRow>` so a consumer can write
+ * `delegate: asBulkOpDelegate(prisma.pendingByolCommit)` instead of
+ * `delegate: prisma.pendingByolCommit as unknown as BulkOpDelegate`.
+ *
+ * It is a no-op at runtime (returns the same reference). The `unknown`
+ * round-trip is intentional and CONTAINED here — it is the single sanctioned
+ * place the structural-boundary cast lives, documented and greppable, rather
+ * than scattered as `as unknown as` across every consumer call site. Prefer
+ * passing `prisma.<model>` directly (it is now structurally assignable, see
+ * above); reach for this only when a Prisma minor tightens a signature in a way
+ * that re-breaks direct assignability.
+ */
+export function asBulkOpDelegate(delegate) {
+    return delegate;
+}
 //# sourceMappingURL=types.js.map

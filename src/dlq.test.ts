@@ -7,7 +7,7 @@ import {
   BulkOpTransientError,
   BulkOpPermanentError,
 } from "./dlq.js";
-import { FakeDlqDelegate } from "./__test-helpers__/fake-delegate.js";
+import { FakeDlqDelegate } from "./testing/fake-delegate.js";
 
 afterEach(() => vi.restoreAllMocks());
 

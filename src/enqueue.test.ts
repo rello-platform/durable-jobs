@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { enqueueBulkOp } from "./enqueue.js";
-import { FakeDelegate } from "./__test-helpers__/fake-delegate.js";
+import { FakeDelegate } from "./testing/fake-delegate.js";
 
 describe("enqueueBulkOp", () => {
   beforeEach(() => {

@@ -22,6 +22,7 @@ export {
   BULK_OP_STATUSES,
   isTerminalStatus,
   isClaimableStatus,
+  asBulkOpDelegate,
 } from "./types.js";
 
 // ── Column template (§4.1) ───────────────────────────────────────────────
@@ -44,7 +45,12 @@ export {
   DEFAULT_CHUNK_SIZE,
   DEFAULT_SCAN_LIMIT,
 } from "./drain.js";
-export type { DrainArgs, DrainResult, DrainItemCtx } from "./drain.js";
+export type {
+  DrainArgs,
+  DrainResult,
+  DrainItemCtx,
+  DrainChunkRange,
+} from "./drain.js";
 
 // ── Progress + reconciling status (§4.4) ─────────────────────────────────
 export {
@@ -80,4 +86,9 @@ export type {
 
 // ── Trigger.dev / Neon runtime helpers (§4.6) ────────────────────────────
 export { dispatchDrain, assertEnvParity } from "./runtime.js";
-export type { AssertEnvParityArgs, AssertEnvParityResult } from "./runtime.js";
+export type {
+  AssertEnvParityArgs,
+  AssertEnvParityResult,
+  DispatchDrainByIdArgs,
+  DispatchDrainThunkArgs,
+} from "./runtime.js";

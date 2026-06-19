@@ -16,22 +16,31 @@
  *
  * The package does NOT ship the Neon `ws` polyfill — see README "Neon + ws".
  */
-/**
- * Dual-dispatch: kick the off-request drain task. The consumer passes
- * `tasks.trigger` (or `taskInstance.trigger`) so the package never imports the
- * SDK. A failed dispatch is logged (never thrown) — the scheduled backstop
- * recovers it (the dispatch happening AFTER the DB commit is write-time-
- * unreachable, which is exactly why the backstop is a legitimate cron).
- */
 export async function dispatchDrain(args) {
     const prefix = args.logPrefix ?? "[durable-jobs:dispatchDrain]";
+    // Disambiguate by SHAPE, not function arity: the v0.1.0 by-id form ALWAYS
+    // carries `taskId` (a required string) + `payload`; the thunk form carries
+    // neither. Arity (`trigger.length`) is unreliable — a `vi.fn()` mock and many
+    // bound callbacks report length 0 even for the (id, payload) form. The
+    // presence of a string `taskId` is the stable discriminator.
+    const isById = typeof args.taskId === "string"
+        && "payload" in args;
+    const label = typeof args.taskId === "string" && args.taskId.length > 0
+        ? args.taskId
+        : "drain task";
     try {
-        await args.trigger(args.taskId, args.payload);
+        if (isById) {
+            const a = args;
+            await a.trigger(a.taskId, a.payload);
+        }
+        else {
+            await args.trigger();
+        }
         return { dispatched: true };
     }
     catch (err) {
         // LOGGED catch — never silent, never thrown. The backstop recovers it.
-        console.error(`${prefix} dispatch of "${args.taskId}" failed (backstop will recover): ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`${prefix} dispatch of "${label}" failed (backstop will recover): ${err instanceof Error ? err.message : String(err)}`);
         return { dispatched: false };
     }
 }

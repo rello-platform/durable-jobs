@@ -5,7 +5,7 @@ import {
   resetStaleClaims,
 } from "./drain.js";
 import { BulkOpPermanentError, BulkOpTransientError } from "./dlq.js";
-import { FakeDelegate } from "./__test-helpers__/fake-delegate.js";
+import { FakeDelegate } from "./testing/fake-delegate.js";
 
 describe("drainBulkOp — atomic claim", () => {
   beforeEach(() => {
@@ -31,7 +31,13 @@ describe("drainBulkOp — atomic claim", () => {
     expect(res.succeeded).toBe(5);
     expect(d.rows.get(row.id)!.status).toBe("COMPLETED");
     expect(d.rows.get(row.id)!.completedAt).not.toBeNull();
-    expect(onComplete).toHaveBeenCalledWith([10, 20, 30, 40, 50]);
+    // v0.1.1: onComplete now receives (results, intent). Results unchanged; the
+    // claimed intent is threaded as the 2nd arg (status is mutated in place by
+    // the FakeDelegate afterward, so match on the stable id only).
+    expect(onComplete).toHaveBeenCalledWith(
+      [10, 20, 30, 40, 50],
+      expect.objectContaining({ id: row.id }),
+    );
   });
 
   it("two concurrent drains of the same row — only ONE claims (count===1), the loser no-ops", async () => {

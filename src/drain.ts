@@ -33,14 +33,27 @@ export const DEFAULT_CLAIM_TTL_MS = 15 * 60 * 1000; // 15 min (PFP canonical).
 export const DEFAULT_CHUNK_SIZE = 25; // HH COMMIT_CHUNK_SIZE.
 export const DEFAULT_SCAN_LIMIT = 50; // HH SCAN_LIMIT / PFP BATCH_SIZE.
 
-export interface DrainItemCtx {
-  intent: BulkOpIntent;
+export interface DrainItemCtx<TIntent extends BulkOpIntent = BulkOpIntent> {
+  /** The CLAIMED, already-loaded intent row (incl. the consumer's `TExtra` columns). */
+  intent: TIntent;
   chunkIndex: number;
   attempt: number;
 }
 
-export interface DrainArgs<TPayload, TItem, TItemResult> {
-  delegate: BulkOpDelegate<BulkOpIntent>;
+/** Range descriptor passed to `onChunk` alongside the chunk's outcomes + intent. */
+export interface DrainChunkRange {
+  start: number;
+  size: number;
+  failed: number;
+}
+
+export interface DrainArgs<
+  TPayload,
+  TItem,
+  TItemResult,
+  TIntent extends BulkOpIntent = BulkOpIntent,
+> {
+  delegate: BulkOpDelegate<TIntent>;
   intentId: string;
   /**
    * false = N=1 per-emit mode (no claim; relies on the receiver's
@@ -62,7 +75,7 @@ export interface DrainArgs<TPayload, TItem, TItemResult> {
    * Cross-instance ordering gate (opt-in). Returns true while a prerequisite is
    * unmet; the drain releases the row to WAITING and the backstop re-attempts.
    */
-  gate?: (intent: BulkOpIntent) => Promise<boolean>;
+  gate?: (intent: TIntent) => Promise<boolean>;
   /** Pull the work items out of the PERSISTED payload (never the request body). */
   selectItems: (payload: TPayload) => TItem[];
   /**
@@ -74,21 +87,36 @@ export interface DrainArgs<TPayload, TItem, TItemResult> {
   processItem: (
     item: TItem,
     indexInIntent: number,
-    ctx: DrainItemCtx,
+    ctx: DrainItemCtx<TIntent>,
   ) => Promise<TItemResult>;
-  /** After each chunk, with the chunk's successful outcomes — advance progress here. */
+  /**
+   * After each chunk, with the chunk's successful outcomes — advance progress here.
+   *
+   * v0.1.1 (ergo-fix 5): the already-CLAIMED `intent` is threaded in as the 3rd
+   * arg so a consumer can resolve its progress key (e.g. `intent.batchId`)
+   * WITHOUT a second PK read per chunk. The arg is APPENDED — a v0.1.0
+   * `(results, range) => …` callback that ignores it stays type-compatible
+   * (TS allows a callback with fewer parameters).
+   */
   onChunk?: (
     results: TItemResult[],
-    chunkRange: { start: number; size: number; failed: number },
+    chunkRange: DrainChunkRange,
+    intent: TIntent,
   ) => Promise<void>;
-  /** Once on terminal success, with all successful outcomes — finalize. */
-  onComplete?: (results: TItemResult[]) => Promise<void>;
+  /**
+   * Once on terminal success, with all successful outcomes — finalize.
+   *
+   * v0.1.1 (ergo-fix 5): the CLAIMED `intent` is threaded in as the 2nd arg so
+   * a consumer's finalize (signals, batch status) can read its business columns
+   * without an extra read. Appended — a v0.1.0 `(results) => …` stays compatible.
+   */
+  onComplete?: (results: TItemResult[], intent: TIntent) => Promise<void>;
   /**
    * Audit hook — called synchronously at claim time (the consumer fires its
    * enqueue-time SYSTEM audit / canonical audit signal here; the PACKAGE writes
    * NO audit — Q-Audit-1). Never throws into the drain; a failing onClaim logs.
    */
-  onClaim?: (intent: BulkOpIntent) => Promise<void>;
+  onClaim?: (intent: TIntent) => Promise<void>;
   logPrefix?: string;
 }
 
@@ -103,8 +131,13 @@ export interface DrainResult {
  * Drain ONE intent. Idempotent + safe under event-dispatch + backstop racing.
  * See module header for the invariant map.
  */
-export async function drainBulkOp<TPayload, TItem, TItemResult>(
-  args: DrainArgs<TPayload, TItem, TItemResult>,
+export async function drainBulkOp<
+  TPayload,
+  TItem,
+  TItemResult,
+  TIntent extends BulkOpIntent = BulkOpIntent,
+>(
+  args: DrainArgs<TPayload, TItem, TItemResult, TIntent>,
 ): Promise<DrainResult> {
   const prefix = args.logPrefix ?? "[durable-jobs:drain]";
   const claim = args.claim ?? true;
@@ -117,7 +150,7 @@ export async function drainBulkOp<TPayload, TItem, TItemResult>(
   // updateMany WHERE prev_state is the only race-free claim. Claims:
   //   A. claimable (PENDING/WAITING/FAILED) whose nextRetryAt has elapsed
   //   B. PROCESSING rows with an expired claim (crash recovery — PFP :108-120)
-  let claimedRow: BulkOpIntent | null;
+  let claimedRow: TIntent | null;
   if (claim) {
     const claimRes = await args.delegate.updateMany({
       where: {
@@ -267,11 +300,11 @@ export async function drainBulkOp<TPayload, TItem, TItemResult>(
 
     if (args.onChunk) {
       try {
-        await args.onChunk(chunkResults, {
-          start,
-          size: chunk.length,
-          failed: chunkFailed,
-        });
+        await args.onChunk(
+          chunkResults,
+          { start, size: chunk.length, failed: chunkFailed },
+          intent,
+        );
       } catch (err) {
         // Progress advance failing is non-fatal — reconcileStatus self-heals
         // counters against ground truth. Log, never abort the drain.
@@ -304,7 +337,7 @@ export async function drainBulkOp<TPayload, TItem, TItemResult>(
 
   if (args.onComplete) {
     try {
-      await args.onComplete(allResults);
+      await args.onComplete(allResults, intent);
     } catch (err) {
       // onComplete is the consumer's finalize (signals, batch status). If it
       // throws, treat as a transient whole-intent failure so the backstop
@@ -337,9 +370,14 @@ export async function drainBulkOp<TPayload, TItem, TItemResult>(
 }
 
 /** Shared failure-ladder writer for drainBulkOp (transient → RELEASE, exhausted → FAILED/DEAD_LETTER). */
-async function finalizeFailure<TPayload, TItem, TItemResult>(p: {
-  args: DrainArgs<TPayload, TItem, TItemResult>;
-  intent: BulkOpIntent;
+async function finalizeFailure<
+  TPayload,
+  TItem,
+  TItemResult,
+  TIntent extends BulkOpIntent = BulkOpIntent,
+>(p: {
+  args: DrainArgs<TPayload, TItem, TItemResult, TIntent>;
+  intent: TIntent;
   err: unknown;
   claim: boolean;
   processed: number;
