@@ -60,6 +60,14 @@ if [ ! -d node_modules ]; then
   exit 1
 fi
 
+# A-124 — a v* tag may not carry a stale dist/. Delegates to the shared
+# tag-dist-gate (check-dist-fresh); STALE and UNVERIFIED both block.
+_c48_refs=$(cat 2>/dev/null || true)
+if printf '%s\n' "$_c48_refs" | grep -q 'refs/tags/'; then
+  printf '%s\n' "$_c48_refs" | npx --yes "github:rello-platform/scripts#v0.20.0" tag-dist-gate
+  npx --yes "github:rello-platform/scripts#v0.20.0" check-lockfile-ssh
+fi
+
 echo "[pre-push] tsc --noEmit..."
 npx tsc --noEmit
 
