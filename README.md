@@ -285,3 +285,7 @@ Tuning constants: `DEFAULT_CLAIM_TTL_MS` (15 min), `DEFAULT_CHUNK_SIZE` (25), `D
 ## Provenance
 
 Spec: `BUILD-|-WORKSTREAM/PLATFORM-DURABLE-BULK-OPERATION-FRAMEWORK/_SPEC-FEATURE.md` §4. Durability bar = PathfinderPro `RelloSyncQueue` gold-standard (ANSWERS D1). PFP grounding: crash-recovery `src/trigger/rello-sync-queue-drain.ts:108-120`; coalescing `src/lib/rello-sync-queue.ts:82-106`. HH BYOL reference @ `dd8aee0`. P0 is the foundation; P1 adds the hardening pillars (scale-test, env-parity manifest, e2e, then observability + contract tests), P2 migrates the 22 flows, P3 codifies the anti-pattern into law.
+
+## Contributor setup
+
+After cloning, run `npm run hooks` once to wire the husky hooks (`core.hooksPath .husky`). This used to be the `prepare` script; C-33 (2026-09-16) moved it off the `prepare` name because npm runs a nested, lockfile-less install inside every git dependency whose manifest carries `prepare` (or `build`), and one such install failed two app builds on a registry blip.
