@@ -1,7 +1,7 @@
 {
   "name": "@rello-platform/durable-jobs",
-  "version": "0.1.1",
-  "description": "Runtime-agnostic durable async-work primitive for the Rello platform \u2014 idempotent+coalescing enqueue, atomic-claim + chunked off-request drain with claim-TTL crash-recovery, atomic progress, reconciling health-typed status, DLQ ladder, dual-dispatch + env-parity. The blessed bulk/at-scale shape (PFP RelloSyncQueue gold-standard + HH BYOL reference, unified).",
+  "version": "0.2.0",
+  "description": "Runtime-agnostic durable async-work primitive for the Rello platform — idempotent+coalescing enqueue, atomic-claim + chunked off-request drain with claim-TTL crash-recovery, atomic progress, reconciling health-typed status, DLQ ladder, dual-dispatch + env-parity. The blessed bulk/at-scale shape (PFP RelloSyncQueue gold-standard + HH BYOL reference, unified).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -22,12 +22,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "compile": "tsc",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build",
-    "prepare": "husky || true; git config core.hooksPath .husky || true"
+    "prepublishOnly": "npm run compile",
+    "hooks": "husky || true; git config core.hooksPath .husky || true"
   },
   "peerDependencies": {
     "@prisma/client": ">=5.0.0",

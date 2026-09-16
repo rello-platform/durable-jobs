@@ -63,8 +63,8 @@ fi
 echo "[pre-push] tsc --noEmit..."
 npx tsc --noEmit
 
-echo "[pre-push] npm run build..."
-npm run build
+echo "[pre-push] npm run compile..."
+npm run compile
 
 echo "[pre-push] npm test..."
 npm test
